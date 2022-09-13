@@ -1,0 +1,65 @@
+## Additional changes required to make fictrac work with Basler cameras, pylon SDK 6.3.0
+
+#in configGui.cpp
+
+# adding BaslerSource.h to configGui as it is missing, added below line 22 : 
+#if defined(BASLER_USB3)
+#include "BaslerSource.h"
+#endif // PGR/BASLER
+
+replace line 153-191 with : 
+
+/// Constructor.
+///
+ConfigGui::ConfigGui(string config_fn)
+: _config_fn(config_fn)
+{
+    /// Load and parse config file.
+    if (_cfg.read(_config_fn) <= 0) {
+        LOG_ERR("Error! Could not read from config file (%s).", _config_fn.c_str());
+        return;
+    }
+
+    /// Read source file name.
+    string input_fn = _cfg("src_fn");
+    if (input_fn.empty()) {
+        LOG_ERR("Error! No src_fn defined in config file.");
+        return;
+    }
+
+    /// Open the image source.
+#if defined(PGR_USB2) || defined(PGR_USB3) || defined(BASLER_USB3)
+    try {
+        if (input_fn.size() > 2) { throw std::exception(); }
+        // first try reading input as camera id
+        int id = std::stoi(input_fn);
+#if defined(PGR_USB2) || defined(PGR_USB3)
+        _source = std::make_shared<PGRSource>(id);
+#elif defined(BASLER_USB3)
+        _source = std::make_shared<BaslerSource>(id);
+#endif // PGR/BASLER
+    }
+    catch (...) {
+        // then try loading as video file
+        _source = std::make_shared<CVSource>(input_fn);
+    }
+#else // !PGR_USB2/3
+    _source = std::make_shared<CVSource>(input_fn);
+#endif // PGR_USB2/3
+    if (!_source || !_source->isOpen()) {
+        LOG_ERR("Error! Could not open input frame source (%s)!", input_fn.c_str());
+        return;
+    }
+
+    /// Load the source camera model.
+
+#in BaslerSource.cpp
+remove line 73 :    const GenApi::CFloatPtr camFrameRate = _cam.GetNodeMap().GetNode("ResultingFrameRateAbs");// TODO: test this line
+replace with : const GenApi::CFloatPtr camFrameRate = _cam.GetNodeMap().GetNode("ResultingFrameRate");
+
+add this line at 133 : formatConverter.OutputPixelFormat = PixelType_BGR8packed;
+just below line 132 : Pylon::CImageFormatConverter formatConverter;
+
+
+
+After this, delete all file from the build folder, recompile using the appropriate flags and configGui will now be able to launch with the your Basler camera!
